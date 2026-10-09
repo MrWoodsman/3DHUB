@@ -1,65 +1,92 @@
 # 3D HUB - plan projektu
 
 Desktopowa aplikacja (Electron) do zarządzania biblioteką modeli 3D i monitorowania drukarek Bambu Lab.
+Opis, uruchomienie i skróty klawiszowe: [README.md](README.md).
 
 ## Stack
 - **Electron** + **electron-vite** (main / preload / renderer, HMR)
 - **React 19** + **TypeScript** + **Tailwind CSS 4**
-- **three.js** via **@react-three/fiber** + **drei** (podgląd 3D)
-- **zustand** (stan UI)
-- electron-builder (pakowanie `.exe`)
-- Vite przypięty do 7 (wymaga tego electron-vite 5); @vitejs/plugin-react 5.
+- **three.js** przez **@react-three/fiber** + **drei** (podgląd 3D)
+- **zustand** (stan UI), **mqtt** (drukarki), **fflate** (odczyt plików 3MF)
+- electron-builder (pakowanie `.exe`, jeszcze nie skonfigurowane)
+- Vite przypięty do 7 (wymaga tego electron-vite 5), `@vitejs/plugin-react` 5
 
 ## Struktura
 ```
 src/
-  main/       proces główny: okno, IPC, dostęp do dysku, (docelowo) MQTT
+  main/       proces główny: okno, IPC, dysk, .3dhub, 3MF (threemf.ts), drukarki MQTT (printers.ts)
   preload/    contextBridge -> window.hub (bezpieczne API dla renderera)
-  shared/     typy wspólne (ModelFile, HubApi)
+  shared/     typy wspólne (types.ts, printers.ts)
   renderer/   React UI
-    src/views/        LibraryView, PrintersView
-    src/components/   Sidebar, ModelViewer
+    src/views/        LibraryView, ProjectsView, PrintersView
+    src/components/   karty, panel szczegółów, viewer 3D, modale, widżet drukarki
+    src/lib/          wczytywanie modeli (worker), parser 3MF z kolorami, miniatury, skróty, drag&drop
     src/store.ts      zustand
 ```
 Zasada: renderer NIE ma dostępu do Node/fs. Wszystko przez IPC w preload (`window.hub`).
 
-## Zrobione (podstawka)
-- [x] Szkielet Electron + React + TS + Tailwind
-- [x] Wybór folderu biblioteki (zapamiętany w `userData/config.json`)
-- [x] Rekursywny skan `.stl` / `.obj` / `.3mf`
-- [x] Lista modeli + podgląd 3D (orbit, grid, auto-fit)
-- [x] Wymiary modelu (bounding box) w mm
-- [x] Zakładka Drukarki (placeholder)
+## Dane na dysku
+- `<biblioteka>/.3dhub/` (ukryty folder, skaner go pomija): `thumbs/` (miniatury), `data.json` (tagi, notatki, ulubione), `projects.json`, `index.json` (czas/waga/plate z 3MF)
+- `userData/config.json` (ścieżka biblioteki, źródło miniatur 3MF), `userData/printers.json` (drukarki, kod dostępu zaszyfrowany przez `safeStorage`)
 
-- [x] Drukarki: dodawanie Bambu Lab (model, IP, serial, kod dostępu), MQTT/TLS 8883, status na żywo (stan, postęp, warstwy, czas, temperatury). Kod zaszyfrowany przez safeStorage, zapis w userData/printers.json
-- [x] 3MF z Bambu Studio: plate'y z miniaturami, drukarka z projektu, czas i waga po slicingu
-- [x] Podgląd 3D: stół z siatką, kolorowe osie X/Y/Z, gizmo w rogu, parsowanie STL/OBJ w workerze
+## Zrobione
 
-- [x] Miniatury 3MF: wybór źródła (z pliku / generowane) przy pierwszym starcie i w ustawieniach, fallback na generowanie
-- [x] Podgląd 3MF w kolorach filamentów (parser w workerze) + przełącznik Kolor / Jednolity
-- [x] Plakietki plate / czas / waga na kafelkach (indeks w .3dhub/index.json) i filtry biblioteki (czas, waga, plate, tylko pocięte)
+### Biblioteka
+- [x] Wybór folderu biblioteki, rekursywny skan `.stl` / `.obj` / `.3mf`
+- [x] Widok folderów (kafelki jako stos kart, breadcrumbs) i płaski; wyszukiwanie po nazwie i tagach
+- [x] Miniatury w ukrytym oknie Electrona (UI się nie zacina), pasek postępu, cache w `.3dhub/thumbs`
+- [x] 3MF: miniatury z pliku lub generowane (wybór przy pierwszym starcie i w ustawieniach), odrzucanie białych teł
+- [x] Tagi, notatki, ulubione; filtry (tag, ulubione, czas druku, waga, liczba plate, tylko pocięte); sortowanie
+- [x] 3MF z Bambu Studio: plate'y z miniaturami, drukarka z projektu, czas i waga po slicingu, plakietki na kafelkach
+- [x] Foldery: tworzenie, zmiana nazwy, usuwanie do Kosza, przeciąganie plików i folderów (przenosi tagi, miniatury, projekty)
+- [x] Zmiana nazwy i usuwanie plików, import przeciągnięciem z Eksploratora, "Otwórz w programie", "Pokaż w folderze"
+- [x] Panel szczegółów o regulowanej szerokości, kwadratowy podgląd 3D
 
-## TODO - Biblioteka
-- [ ] Miniatury (render offscreen -> cache PNG)
-- [ ] (opcjonalnie) przejście z data.json na SQLite przy dużych bibliotekach
-- [ ] Wyszukiwanie / filtrowanie po tagach
-- [ ] Czas druku / zużycie filamentu: parsowanie metadanych z `.3mf` (gcode z Bambu Studio) lub ręcznie
+### Podgląd 3D
+- [x] Orbit, stół z siatką dopasowaną do modelu, kolorowe osie X/Y/Z i gizmo w rogu, wymiary w mm
+- [x] Parsowanie STL/OBJ/3MF w workerze, spinner i płynne pojawianie się modelu
+- [x] 3MF w kolorach filamentów (kolor obiektu i malowanie pędzlem `paint_color`), przełącznik Kolor / Jednolity
+
+### Projekty
+- [x] Projekt = części (np. obudowa, uchwyt) z wersjami plików, aktualna wersja, notatki, "aktualny zestaw"
+
+### Drukarki (Bambu Lab, LAN/MQTT)
+- [x] Dodawanie drukarki (model, IP, serial, kod dostępu), połączenie MQTT/TLS, status na żywo
+- [x] Postęp, warstwy, czas do końca, temperatury, wentylatory, AMS, ostrzeżenia HMS
+- [x] Sterowanie: wstrzymaj / wznów / przerwij, światło, prędkość druku
+- [x] Kamera P1/A1 (strumień JPEG), powiadomienia o końcu i błędzie druku
+- [x] Ulubiona drukarka w pasku bocznym ze skrótem najważniejszych informacji
+
+### Aplikacja
+- [x] Własny pasek tytułu, ustawienia (folder, widok, rozmiar kafelków, miniatury, dane)
+- [x] Skróty klawiszowe (`?` / `F1` pokazuje listę), potwierdzenia usuwania w oknach, powiadomienia (toast)
+
+## Do zrobienia
+
+### Biblioteka
+- [ ] Zaznaczanie wielu plików (masowe tagi, przenoszenie, usuwanie)
 - [ ] Watcher folderu (chokidar) zamiast ręcznego odświeżania
+- [ ] Wirtualizacja siatki przy tysiącach modeli
+- [ ] Wykrywanie duplikatów
 - [ ] Wsparcie `.step`, `.gcode.3mf`
-- [ ] Wirtualizacja listy przy tysiącach modeli
+- [ ] Podgląd tylko wybranego plate (dziś widać wszystkie naraz)
+- [ ] (opcjonalnie) SQLite zamiast plików JSON przy dużych bibliotekach
 
-## TODO - Drukarki (Bambu Lab)
-- [ ] Klient MQTT w main procesie (`mqtt`): TLS, port 8883, user `bblp`, hasło = access code
-- [ ] Subskrypcja `device/<SERIAL>/report`, publish `device/<SERIAL>/request`
-- [ ] Status: temperatury, postęp, warstwa, ETA, stan AMS
-- [ ] Konfiguracja drukarek (IP, serial, access code) - trzymać w keychain (`safeStorage`)
-- [ ] Podgląd kamery (RTSP/JPEG stream)
-- [ ] Wysyłanie plików (FTPS, port 990) - opcjonalnie
+### Filamenty (zakładka z projektu w Figmie)
+- [ ] Magazyn szpul: materiał, marka, kolor, waga początkowa i pozostała
+- [ ] Dopasowanie do slotów AMS i zużycia z 3MF (gramy per filament)
+- [ ] Filtr biblioteki "to, co mogę wydrukować z posiadanych szpul"
 
-## TODO - ogólne
-- [ ] Ikona + `electron-builder.yml` (instalator NSIS)
-- [ ] Ustawienia, motyw jasny/ciemny
-- [ ] Testy (vitest)
+### Drukarki
+- [ ] Kamera X1 / H2D (RTSP) - dziś tylko P1/A1
+- [ ] Wysyłanie plików na drukarkę (FTPS, port 990)
+- [ ] Historia wydruków
+- [ ] Sprawdzić komendy i kamerę na więcej modeli i wersji firmware (status działa na P1S)
+
+### Ogólne
+- [ ] Ikona aplikacji + `electron-builder.yml` (instalator NSIS)
+- [ ] Motyw jasny
+- [ ] Testy (vitest), w tym parser 3MF i dekodowanie `paint_color`
 
 ## Komendy
 - `npm run dev` - tryb deweloperski
